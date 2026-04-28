@@ -1,4 +1,5 @@
 #include "Gamepad.hpp"
+#include "nvs_flash.h"
 extern "C" {
 
 #include "btstack_port_esp32.h"
@@ -29,7 +30,7 @@ void Gamepad::start() {
 }
 
 void Gamepad::bt_task(void *arg) {
-
+  uni_bt_allow_incoming_connections(true);
   btstack_init();
   uni_platform_set_custom(&custom_platform);
   uni_init(0, nullptr);
