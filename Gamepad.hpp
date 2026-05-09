@@ -46,8 +46,8 @@ public:
 
   };
   struct joy_data_t {
-    int16_t x;
-    int16_t y;
+    int x;
+    int y;
   };
 
   /**
@@ -78,16 +78,15 @@ public:
   void get_l_joy(joy_data_t *ljoy);
 
 private:
-  joy_data_t offset_r_joy;
-  joy_data_t offset_l_joy;
+  joy_data_t offset_r_joy = {0, 0};
+  joy_data_t offset_l_joy = {0, 0};
 
-  joy_data_t current_r_joy;
-  joy_data_t current_l_joy;
+  joy_data_t current_r_joy = {0, 0};
+  joy_data_t current_l_joy = {0, 0};
 
   SemaphoreHandle_t data_mutex;
 
-  uint16_t buttons;
-  uint16_t misc_buttons;
+  uint16_t buttons = 0;
 
   /**
    * @brief Global pointer to the active Gamepad instance.

@@ -3,6 +3,7 @@
 #include "controller/uni_gamepad.h"
 #include "freertos/idf_additions.h"
 #include "nvs_flash.h"
+#include <algorithm>
 extern "C" {
 
 #include "btstack_port_esp32.h"
@@ -73,18 +74,25 @@ bool Gamepad::is_pressed(Gamepad::ButtonCode code) {
 
 void Gamepad::get_r_joy(joy_data_t *rjoy) {
   if (xSemaphoreTake(this->data_mutex, portMAX_DELAY) == pdTRUE) {
-    *rjoy = this->current_r_joy;
-    rjoy->x -= this->offset_r_joy.x;
-    rjoy->y -= this->offset_r_joy.y;
+    rjoy->x =
+        std::clamp((int)(this->current_r_joy.x) - (int)(this->offset_r_joy.x),
+                   -32767, 32767);
+
+    rjoy->y =
+        std::clamp((int)(this->current_r_joy.y) - (int)(this->offset_r_joy.y),
+                   -32767, 32767);
     xSemaphoreGive(this->data_mutex);
   };
 }
 void Gamepad::get_l_joy(joy_data_t *ljoy) {
   if (xSemaphoreTake(this->data_mutex, portMAX_DELAY) == pdTRUE) {
-    *ljoy = this->current_l_joy;
+    ljoy->x =
+        std::clamp((int)(this->current_l_joy.x) - (int)(this->offset_l_joy.x),
+                   -32767, 32767);
 
-    ljoy->x -= this->offset_l_joy.x;
-    ljoy->y -= this->offset_l_joy.y;
+    ljoy->y =
+        std::clamp((int)(this->current_l_joy.y) - (int)(this->offset_l_joy.y),
+                   -32767, 32767);
     xSemaphoreGive(this->data_mutex);
   };
 }
@@ -111,7 +119,9 @@ uni_error_t Gamepad::on_device_discovered(bd_addr_t addr, const char *name,
   return UNI_ERROR_SUCCESS;
 }
 
-void Gamepad::on_device_connected(uni_hid_device_t *d) {}
+void Gamepad::on_device_connected(uni_hid_device_t *d) {
+  printf("Gamepad connected.\n");
+}
 
 void Gamepad::on_device_disconnected(uni_hid_device_t *d) {}
 
