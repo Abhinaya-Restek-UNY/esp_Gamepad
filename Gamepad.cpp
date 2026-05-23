@@ -3,6 +3,7 @@
 #include "controller/uni_gamepad.h"
 #include "freertos/idf_additions.h"
 #include "nvs_flash.h"
+#include "uni_hid_device.h"
 #include <algorithm>
 extern "C" {
 
@@ -44,7 +45,11 @@ void Gamepad::bt_task(void *arg) {
   vTaskDelete(NULL);
 }
 
+int16_t Gamepad::get_dpad_x() { return this->dpad_x; }
+int16_t Gamepad::get_dpad_y() { return this->dpad_y; };
+
 void Gamepad::on_event(uni_hid_device_t *d, uni_controller_t *ctl) {
+  instance->device_ptr = d;
   if (ctl->klass == UNI_CONTROLLER_CLASS_GAMEPAD) {
 
     if (xSemaphoreTake(instance->data_mutex, 0) == pdTRUE) {
@@ -58,6 +63,22 @@ void Gamepad::on_event(uni_hid_device_t *d, uni_controller_t *ctl) {
       instance->current_r_joy.y = (gp->axis_ry << 6);
 
       instance->buttons = gp->buttons | (gp->misc_buttons << 10);
+
+      if (gp->dpad & DPAD_LEFT) {
+        this->dpad_x = -32767;
+      } else if (gp->dpad & DPAD_RIGHT) {
+        this->dpad_x = 32767;
+      } else {
+        this->dpad_x = 0;
+      }
+
+      if (gp->dpad & DPAD_DOWN) {
+        this->dpad_y = -32767;
+      } else if (gp->dpad & DPAD_UP) {
+        this->dpad_y = 32767;
+      } else {
+        this->dpad_y = 0;
+      }
 
       xSemaphoreGive(instance->data_mutex);
     }
@@ -120,10 +141,14 @@ uni_error_t Gamepad::on_device_discovered(bd_addr_t addr, const char *name,
 }
 
 void Gamepad::on_device_connected(uni_hid_device_t *d) {
+
+  instance->_is_connected = true;
   printf("Gamepad connected.\n");
 }
 
-void Gamepad::on_device_disconnected(uni_hid_device_t *d) {}
+void Gamepad::on_device_disconnected(uni_hid_device_t *d) {
+  instance->_is_connected = false;
+}
 
 uni_error_t Gamepad::on_device_ready(uni_hid_device_t *d) {
   return UNI_ERROR_SUCCESS;
@@ -134,3 +159,12 @@ const uni_property_t *Gamepad::get_property(uni_property_idx_t idx) {
 }
 
 void Gamepad::on_oob_event(uni_platform_oob_event_t event, void *data) {}
+
+void Gamepad::play_rumble(uint8_t force, uint16_t duration) {
+  if (this->device_ptr != nullptr) {
+    device_ptr->report_parser.play_dual_rumble(device_ptr, 0, duration, force,
+                                               force);
+  }
+}
+
+bool Gamepad::is_connected() { return this->_is_connected; }

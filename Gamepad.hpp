@@ -73,17 +73,27 @@ public:
   void zero_r_joy();
 
   bool is_pressed(Gamepad::ButtonCode code);
+  bool is_connected();
 
   void get_r_joy(joy_data_t *rjoy);
   void get_l_joy(joy_data_t *ljoy);
+
+  void play_rumble(uint8_t force, uint16_t duration);
+
+  int16_t get_dpad_x();
+  int16_t get_dpad_y();
 
 private:
   joy_data_t offset_r_joy = {0, 0};
   joy_data_t offset_l_joy = {0, 0};
 
+  int16_t dpad_x = 0;
+  int16_t dpad_y = 0;
+
   joy_data_t current_r_joy = {0, 0};
   joy_data_t current_l_joy = {0, 0};
-
+  bool _is_connected = false;
+  uni_hid_device_t *device_ptr = NULL;
   SemaphoreHandle_t data_mutex;
 
   uint16_t buttons = 0;
