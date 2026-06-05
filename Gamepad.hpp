@@ -2,8 +2,11 @@
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include <atomic>
 #include <functional>
 #include <uni.h>
+
+#define MAX_THROTTLE_BRAKE 1024
 
 /**
  * @brief Callback types for mapping gamepad inputs to external functions.
@@ -73,6 +76,7 @@ public:
   void zero_r_joy();
 
   bool is_pressed(Gamepad::ButtonCode code);
+  bool is_just_pressed(Gamepad::ButtonCode code);
   bool is_connected();
 
   void get_r_joy(joy_data_t *rjoy);
@@ -83,21 +87,25 @@ public:
   int16_t get_dpad_x();
   int16_t get_dpad_y();
 
+  int16_t get_brake();
+  int16_t get_throttle();
+
 private:
-  joy_data_t offset_r_joy = {0, 0};
-  joy_data_t offset_l_joy = {0, 0};
+  joy_data_t offset_r_joy = joy_data_t{0, 0};
+  joy_data_t offset_l_joy = joy_data_t{0, 0};
 
-  int16_t dpad_x = 0;
-  int16_t dpad_y = 0;
+  std::atomic<int16_t> dpad_x = 0;
+  std::atomic<int16_t> dpad_y = 0;
+  std::atomic<joy_data_t> current_r_joy = joy_data_t{0, 0};
+  std::atomic<joy_data_t> current_l_joy = joy_data_t{0, 0};
+  std::atomic<bool> _is_connected = false;
+  std::atomic<uni_hid_device_t *> device_ptr = NULL;
 
-  joy_data_t current_r_joy = {0, 0};
-  joy_data_t current_l_joy = {0, 0};
-  bool _is_connected = false;
-  uni_hid_device_t *device_ptr = NULL;
-  SemaphoreHandle_t data_mutex;
-
-  uint16_t buttons = 0;
-
+  std::atomic<uint16_t> buttons = 0;
+  std::atomic<uint16_t> prev_buttons = 0;
+  std::atomic<uint16_t> just_pressed = 0;
+  std::atomic<int16_t> throttle = 0;
+  std::atomic<int16_t> brake = 0;
   /**
    * @brief Global pointer to the active Gamepad instance.
    * Necessary for routing C-style static callbacks back into the C++ object

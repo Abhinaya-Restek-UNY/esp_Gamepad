@@ -25,10 +25,7 @@ struct uni_platform Gamepad::custom_platform = {
     .on_oob_event = on_oob_event,
 };
 
-Gamepad::Gamepad() {
-  instance = this;
-  this->data_mutex = xSemaphoreCreateMutex();
-}
+Gamepad::Gamepad() { instance = this; }
 
 void Gamepad::start() {
   xTaskCreate(bt_task, "bluepad_task", 4096, nullptr, 5, nullptr);
@@ -52,70 +49,73 @@ void Gamepad::on_event(uni_hid_device_t *d, uni_controller_t *ctl) {
   instance->device_ptr = d;
   if (ctl->klass == UNI_CONTROLLER_CLASS_GAMEPAD) {
 
-    if (xSemaphoreTake(instance->data_mutex, 0) == pdTRUE) {
+    uni_gamepad_t *gp = &ctl->gamepad;
 
-      uni_gamepad_t *gp = &ctl->gamepad;
+    instance->throttle = gp->throttle;
+    instance->brake = gp->brake;
 
-      instance->current_l_joy.x = (gp->axis_x << 6);
-      instance->current_l_joy.y = (gp->axis_y << 6);
+    instance->current_l_joy = joy_data_t{gp->axis_x << 6, (gp->axis_y << 6)};
 
-      instance->current_r_joy.x = (gp->axis_rx << 6);
-      instance->current_r_joy.y = (gp->axis_ry << 6);
+    instance->current_r_joy = joy_data_t{gp->axis_rx << 6, gp->axis_ry << 6};
 
-      instance->buttons = gp->buttons | (gp->misc_buttons << 10);
+    instance->buttons = gp->buttons | (gp->misc_buttons << 10);
 
-      if (gp->dpad & DPAD_LEFT) {
-        this->dpad_x = -32767;
-      } else if (gp->dpad & DPAD_RIGHT) {
-        this->dpad_x = 32767;
-      } else {
-        this->dpad_x = 0;
-      }
+    if (gp->dpad & DPAD_LEFT) {
+      this->dpad_x = -32767;
+    } else if (gp->dpad & DPAD_RIGHT) {
+      this->dpad_x = 32767;
+    } else {
+      this->dpad_x = 0;
+    }
 
-      if (gp->dpad & DPAD_DOWN) {
-        this->dpad_y = -32767;
-      } else if (gp->dpad & DPAD_UP) {
-        this->dpad_y = 32767;
-      } else {
-        this->dpad_y = 0;
-      }
-
-      xSemaphoreGive(instance->data_mutex);
+    if (gp->dpad & DPAD_DOWN) {
+      this->dpad_y = -32767;
+    } else if (gp->dpad & DPAD_UP) {
+      this->dpad_y = 32767;
+    } else {
+      this->dpad_y = 0;
     }
   }
 }
 
+int16_t Gamepad::get_brake() { return this->brake.load(); }
+int16_t Gamepad::get_throttle() { return this->throttle.load(); }
+
 bool Gamepad::is_pressed(Gamepad::ButtonCode code) {
-  if (xSemaphoreTake(this->data_mutex, portMAX_DELAY) == pdTRUE) {
-    xSemaphoreGive(this->data_mutex);
-    return (this->buttons & code) != 0;
-  };
-  return false;
+  return (this->buttons & code) != 0;
+};
+
+bool Gamepad::is_just_pressed(Gamepad::ButtonCode code) {
+  uint8_t ret = 0;
+
+  int32_t just_pressed_mask = this->buttons & ~this->prev_buttons;
+
+  if (just_pressed_mask & code) {
+    this->prev_buttons |= code;
+    ret = 1;
+  } else if ((this->buttons & code) == 0) {
+    this->prev_buttons &= ~code;
+  }
+
+  return ret;
 };
 
 void Gamepad::get_r_joy(joy_data_t *rjoy) {
-  if (xSemaphoreTake(this->data_mutex, portMAX_DELAY) == pdTRUE) {
-    rjoy->x =
-        std::clamp((int)(this->current_r_joy.x) - (int)(this->offset_r_joy.x),
-                   -32767, 32767);
+  joy_data_t joy = this->current_r_joy;
+  rjoy->x =
+      std::clamp((int)(joy.x) - (int)(this->offset_r_joy.x), -32767, 32767);
 
-    rjoy->y =
-        std::clamp((int)(this->current_r_joy.y) - (int)(this->offset_r_joy.y),
-                   -32767, 32767);
-    xSemaphoreGive(this->data_mutex);
-  };
+  rjoy->y =
+      std::clamp((int)(joy.y) - (int)(this->offset_r_joy.y), -32767, 32767);
 }
-void Gamepad::get_l_joy(joy_data_t *ljoy) {
-  if (xSemaphoreTake(this->data_mutex, portMAX_DELAY) == pdTRUE) {
-    ljoy->x =
-        std::clamp((int)(this->current_l_joy.x) - (int)(this->offset_l_joy.x),
-                   -32767, 32767);
 
-    ljoy->y =
-        std::clamp((int)(this->current_l_joy.y) - (int)(this->offset_l_joy.y),
-                   -32767, 32767);
-    xSemaphoreGive(this->data_mutex);
-  };
+void Gamepad::get_l_joy(joy_data_t *ljoy) {
+  joy_data_t joy = this->current_l_joy;
+
+  ljoy->x =
+      std::clamp((int)(joy.x) - (int)(this->offset_l_joy.x), -32767, 32767);
+  ljoy->y =
+      std::clamp((int)(joy.y) - (int)(this->offset_l_joy.y), -32767, 32767);
 }
 
 void Gamepad::on_controller_data(uni_hid_device_t *d, uni_controller_t *ctl) {
@@ -162,8 +162,8 @@ void Gamepad::on_oob_event(uni_platform_oob_event_t event, void *data) {}
 
 void Gamepad::play_rumble(uint8_t force, uint16_t duration) {
   if (this->device_ptr != nullptr) {
-    device_ptr->report_parser.play_dual_rumble(device_ptr, 0, duration, force,
-                                               force);
+    device_ptr.load()->report_parser.play_dual_rumble(device_ptr, 0, duration,
+                                                      force, force);
   }
 }
 
