@@ -1,6 +1,7 @@
 #include "Gamepad.hpp"
 #include "bt/uni_bt.h"
 #include "controller/uni_gamepad.h"
+#include "esp_system.h"
 #include "freertos/idf_additions.h"
 #include "nvs_flash.h"
 #include "uni_hid_device.h"
@@ -53,6 +54,14 @@ void Gamepad::on_event(uni_hid_device_t *d, uni_controller_t *ctl) {
 
     instance->throttle = gp->throttle;
     instance->brake = gp->brake;
+
+    if (instance->throttle < 1 && ctl->gamepad.misc_buttons & 0x80) {
+      instance->throttle = 1024;
+    }
+
+    if (instance->brake < 1 && ctl->gamepad.misc_buttons & 0x40) {
+      instance->brake = 1024;
+    }
 
     instance->current_l_joy = joy_data_t{gp->axis_x << 6, (gp->axis_y << 6)};
 
@@ -148,6 +157,7 @@ void Gamepad::on_device_connected(uni_hid_device_t *d) {
 
 void Gamepad::on_device_disconnected(uni_hid_device_t *d) {
   instance->_is_connected = false;
+  esp_restart();
 }
 
 uni_error_t Gamepad::on_device_ready(uni_hid_device_t *d) {
@@ -160,11 +170,36 @@ const uni_property_t *Gamepad::get_property(uni_property_idx_t idx) {
 
 void Gamepad::on_oob_event(uni_platform_oob_event_t event, void *data) {}
 
-void Gamepad::play_rumble(uint8_t force, uint16_t duration) {
+void Gamepad::play_rumble() {
+  static btstack_context_callback_registration_t rumble_callback;
   if (this->device_ptr != nullptr) {
-    device_ptr.load()->report_parser.play_dual_rumble(device_ptr, 0, duration,
-                                                      force, force);
+
+    // We pass the controller's internal index as the context.
+    // This is safer than passing the pointer, just in case the controller
+    // disconnects!
+    int gamepad_idx = uni_hid_device_get_idx_for_instance(this->device_ptr);
+
+    rumble_callback.callback = &safe_rumble_task;
+    rumble_callback.context = (void *)gamepad_idx;
+
+    // Hand it off to the BTstack loop to execute on its next cycle
+    btstack_run_loop_execute_on_main_thread(&rumble_callback);
   }
 }
 
 bool Gamepad::is_connected() { return this->_is_connected; }
+
+void Gamepad::safe_rumble_task(void *context) {
+  // Cast the context back to a device index
+  int idx = (int)context;
+
+  // Fetch the device safely from inside the BT thread
+  uni_hid_device_t *d = uni_hid_device_get_instance_for_idx(idx);
+
+  // Safety check: Ensure the gamepad hasn't disconnected in the last
+  // millisecond
+  if (d != NULL && d->report_parser.play_dual_rumble != NULL) {
+    // play_dual_rumble(device, delay_ms, duration_ms, weak_motor, strong_motor)
+    d->report_parser.play_dual_rumble(d, 0, 250, 0x80, 0x80);
+  }
+}

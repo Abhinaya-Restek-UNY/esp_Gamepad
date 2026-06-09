@@ -82,7 +82,7 @@ public:
   void get_r_joy(joy_data_t *rjoy);
   void get_l_joy(joy_data_t *ljoy);
 
-  void play_rumble(uint8_t force, uint16_t duration);
+  void play_rumble();
 
   int16_t get_dpad_x();
   int16_t get_dpad_y();
@@ -91,6 +91,7 @@ public:
   int16_t get_throttle();
 
 private:
+  static void safe_rumble_task(void *context);
   joy_data_t offset_r_joy = joy_data_t{0, 0};
   joy_data_t offset_l_joy = joy_data_t{0, 0};
 
