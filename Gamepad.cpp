@@ -1,4 +1,5 @@
 #include "Gamepad.hpp"
+#include "bluetooth.h"
 #include "bt/uni_bt.h"
 #include "controller/uni_gamepad.h"
 #include "esp_system.h"
@@ -6,6 +7,7 @@
 #include "nvs_flash.h"
 #include "uni_hid_device.h"
 #include <algorithm>
+#include <cstring>
 extern "C" {
 
 #include "btstack_port_esp32.h"
@@ -26,7 +28,11 @@ struct uni_platform Gamepad::custom_platform = {
     .on_oob_event = on_oob_event,
 };
 
-Gamepad::Gamepad() { instance = this; }
+Gamepad::Gamepad()
+    : address("addr", bd_addr_t{0, 0, 0, 0, 0, 0}),
+      is_locked("is_lock", false) {
+  instance = this;
+}
 
 void Gamepad::start() {
   xTaskCreate(bt_task, "bluepad_task", 4096, nullptr, 5, nullptr);
@@ -38,6 +44,13 @@ void Gamepad::bt_task(void *arg) {
   // uni_bt_stop_scanning_safe();
   uni_platform_set_custom(&custom_platform);
   uni_init(0, nullptr);
+  uni_bt_allowlist_remove_all();
+  if (instance->is_locked.value) {
+    uni_bt_allowlist_add_addr(instance->address.value);
+    uni_bt_allowlist_set_enabled(true);
+  } else {
+    uni_bt_allowlist_set_enabled(false);
+  }
   printf("Starting Bluetooth Task...\n");
   btstack_run_loop_execute();
   vTaskDelete(NULL);
@@ -46,6 +59,28 @@ void Gamepad::bt_task(void *arg) {
 int16_t Gamepad::get_dpad_x() { return this->dpad_x; }
 int16_t Gamepad::get_dpad_y() { return this->dpad_y; };
 
+void Gamepad::lock() {
+  if (!this->_is_connected) {
+    return;
+  }
+
+  this->is_locked.value = true;
+
+  memcpy(this->address.value, this->device_ptr.load()->conn.btaddr,
+         sizeof(bd_addr_t));
+
+  this->address.save();
+
+  this->is_locked.save();
+}
+
+void Gamepad::unlock() {
+
+  this->is_locked.value = false;
+
+  this->address.save();
+  this->is_locked.save();
+}
 void Gamepad::on_event(uni_hid_device_t *d, uni_controller_t *ctl) {
   instance->device_ptr = d;
   if (ctl->klass == UNI_CONTROLLER_CLASS_GAMEPAD) {

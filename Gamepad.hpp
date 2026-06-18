@@ -1,5 +1,6 @@
 #pragma once
 
+#include "PresistentConfig.hpp"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include <atomic>
@@ -48,6 +49,7 @@ public:
     OPTIONS = 0b0001000000000000,
 
   };
+
   struct joy_data_t {
     int x;
     int y;
@@ -90,10 +92,15 @@ public:
   int16_t get_brake();
   int16_t get_throttle();
 
+  void lock();
+  void unlock();
+
 private:
   static void safe_rumble_task(void *context);
   joy_data_t offset_r_joy = joy_data_t{0, 0};
   joy_data_t offset_l_joy = joy_data_t{0, 0};
+  PresistentConfig<bd_addr_t> address;
+  PresistentConfig<bool> is_locked;
 
   std::atomic<int16_t> dpad_x = 0;
   std::atomic<int16_t> dpad_y = 0;
