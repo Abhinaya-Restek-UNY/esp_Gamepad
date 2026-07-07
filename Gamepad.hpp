@@ -1,3 +1,13 @@
+/**
+ * @file Gamepad.hpp
+ * @brief An object-oriented wrapper for handling Bluetooth gamepads using
+ * Bluepad32/BTStack.
+ * * @note **DEPENDENCY REQUIREMENT:** This library requires `bluepad32`,
+ * `btstack`, and `esp_PresistentConfig` to be installed in your ESP-IDF
+ * project's components. This component does not handle the base installation or
+ * menuconfig setup of Bluepad32.
+ */
+
 #pragma once
 
 #include "PresistentConfig.hpp"
@@ -17,22 +27,25 @@
 using on_direction_cb =
     std::function<void(int16_t, int16_t)>; ///< Callback for directional inputs
                                            ///< (e.g., left joystick/D-pad)
-
 using on_yaw_cb =
     std::function<void(int16_t, int16_t)>; ///< Callback for yaw/rotational
                                            ///< inputs (e.g., right joystick)
-
 using on_grip = std::function<void(
     int16_t, int16_t)>; ///< Callback for grip/trigger inputs (e.g., L2/R2)
 
 /**
- * @brief A wrapper class for handling Bluetooth gamepads using
- * Bluepad32/BTStack.
+ * @brief A wrapper class for handling Bluetooth gamepads.
  * * Uses a singleton-like instance pointer to bridge static C-style callbacks
  * required by the `uni_platform` struct to the non-static C++ class methods.
+ * Internal state is managed using `std::atomic` to ensure thread-safe reads
+ * from the main application loop while the BTStack task updates data in the
+ * background.
  */
 class Gamepad {
 public:
+  /**
+   * @brief Bitmask definitions for standard gamepad buttons.
+   */
   enum ButtonCode {
     CROSS = 0b0000000000000001,
     CIRCLE = 0b0000000000000010,
@@ -47,9 +60,11 @@ public:
     PS_BUTTON = 0b0000010000000000,
     SHARE = 0b0000100000000000,
     OPTIONS = 0b0001000000000000,
-
   };
 
+  /**
+   * @brief Represents 2D Cartesian coordinates for joystick axes.
+   */
   struct joy_data_t {
     int x;
     int y;
@@ -57,51 +72,134 @@ public:
 
   /**
    * @brief Constructs the Gamepad object and assigns the global instance
-   * pointer.
+   * pointer. Initializes persistent configuration for Bluetooth MAC address
+   * locking.
    */
   Gamepad();
 
   /**
    * @brief Spawns the FreeRTOS task to initialize and run the BTStack loop.
+   * Must be called to begin listening for Bluetooth controller connections.
    */
   void start();
 
   /**
    * @brief Non-static handler for processing incoming gamepad events.
    * @param d Pointer to the generic HID device struct.
-   * @param ctl Pointer to the controller struct containing axis/button states.
+   * @param ctl Pointer to the controller struct containing parsed axis/button
+   * states.
    */
   void on_event(uni_hid_device_t *d, uni_controller_t *ctl);
 
+  /**
+   * @brief Sets the current left joystick position as the new zero/center
+   * offset.
+   */
   void zero_l_joy();
 
+  /**
+   * @brief Sets the current right joystick position as the new zero/center
+   * offset.
+   */
   void zero_r_joy();
 
+  /**
+   * @brief Checks if a specific button is currently held down.
+   * @param code The ButtonCode to check.
+   * @return true if the button is pressed, false otherwise.
+   */
   bool is_pressed(Gamepad::ButtonCode code);
+
+  /**
+   * @brief Checks if a specific button was pressed exactly on this processing
+   * frame.
+   * @param code The ButtonCode to check.
+   * @return true if the button transitioned from unpressed to pressed, false
+   * otherwise.
+   */
   bool is_just_pressed(Gamepad::ButtonCode code);
+
+  /**
+   * @brief Checks the active connection status of the gamepad.
+   * @return true if a gamepad is currently connected, false otherwise.
+   */
   bool is_connected();
 
+  /**
+   * @brief Retrieves the current state of the right joystick, accounting for
+   * offsets.
+   * @param rjoy Pointer to a joy_data_t struct to populate with the axis
+   * values.
+   */
   void get_r_joy(joy_data_t *rjoy);
+
+  /**
+   * @brief Retrieves the current state of the left joystick, accounting for
+   * offsets.
+   * @param ljoy Pointer to a joy_data_t struct to populate with the axis
+   * values.
+   */
   void get_l_joy(joy_data_t *ljoy);
 
+  /**
+   * @brief Safely triggers a dual-rumble effect on the connected gamepad.
+   */
   void play_rumble();
 
+  /**
+   * @brief Retrieves the D-Pad X-axis state.
+   * @return -32767 for Left, 32767 for Right, 0 for neutral.
+   */
   int16_t get_dpad_x();
+
+  /**
+   * @brief Retrieves the D-Pad Y-axis state.
+   * @return -32767 for Down, 32767 for Up, 0 for neutral.
+   */
   int16_t get_dpad_y();
 
+  /**
+   * @brief Retrieves the analog brake (L2) trigger value.
+   * @return Integer value representing brake pressure (0 to
+   * MAX_THROTTLE_BRAKE).
+   */
   int16_t get_brake();
+
+  /**
+   * @brief Retrieves the analog throttle (R2) trigger value.
+   * @return Integer value representing throttle pressure (0 to
+   * MAX_THROTTLE_BRAKE).
+   */
   int16_t get_throttle();
 
+  /**
+   * @brief Locks the system to the currently connected gamepad's MAC address.
+   * Prevents other Bluetooth controllers from connecting. Saves to NVS.
+   */
   void lock();
+
+  /**
+   * @brief Unlocks the system, allowing any Bluetooth controller to connect.
+   * Clears the MAC address restriction from NVS.
+   */
   void unlock();
 
 private:
+  /**
+   * @brief Thread-safe proxy function executed by the BTstack loop to trigger
+   * rumble.
+   * @param context Void pointer cast of the internal controller index.
+   */
   static void safe_rumble_task(void *context);
+
   joy_data_t offset_r_joy = joy_data_t{0, 0};
   joy_data_t offset_l_joy = joy_data_t{0, 0};
+
   PresistentConfig<bd_addr_t> address;
   PresistentConfig<bool> is_locked;
 
+  // Thread-safe atomic state variables updated by the BT task and read by the
+  // main task.
   std::atomic<int16_t> dpad_x = 0;
   std::atomic<int16_t> dpad_y = 0;
   std::atomic<joy_data_t> current_r_joy = joy_data_t{0, 0};
@@ -114,6 +212,7 @@ private:
   std::atomic<uint16_t> just_pressed = 0;
   std::atomic<int16_t> throttle = 0;
   std::atomic<int16_t> brake = 0;
+
   /**
    * @brief Global pointer to the active Gamepad instance.
    * Necessary for routing C-style static callbacks back into the C++ object
@@ -136,66 +235,14 @@ private:
 
   // --- Static Callbacks (Bluepad32 C-API Bindings) ---
 
-  /**
-   * @brief Called when the Bluepad32 platform is initializing.
-   */
   static void on_init(int argc, const char **argv);
-
-  /**
-   * @brief Called when platform initialization is complete.
-   * Starts scanning and allows incoming connections.
-   */
   static void on_init_complete();
-
-  /**
-   * @brief Called when a new Bluetooth HID device is discovered.
-   * @param addr Bluetooth MAC address of the device.
-   * @param name Name of the device.
-   * @param cod Class of Device.
-   * @param rssi Signal strength.
-   * @return uni_error_t UNI_ERROR_SUCCESS to accept the device.
-   */
   static uni_error_t on_device_discovered(bd_addr_t addr, const char *name,
                                           uint16_t cod, uint8_t rssi);
-
-  /**
-   * @brief Called when a device successfully connects.
-   * @param d Pointer to the connected HID device.
-   */
   static void on_device_connected(uni_hid_device_t *d);
-
-  /**
-   * @brief Called when a device disconnects.
-   * @param d Pointer to the disconnected HID device.
-   */
   static void on_device_disconnected(uni_hid_device_t *d);
-
-  /**
-   * @brief Called when a connected device is parsed and ready to send reports.
-   * @param d Pointer to the ready HID device.
-   * @return uni_error_t UNI_ERROR_SUCCESS.
-   */
   static uni_error_t on_device_ready(uni_hid_device_t *d);
-
-  /**
-   * @brief Intercepts controller data and routes it to the active instance's
-   * on_event() method.
-   * @param d Pointer to the HID device sending data.
-   * @param ctl Pointer to the parsed controller data state.
-   */
   static void on_controller_data(uni_hid_device_t *d, uni_controller_t *ctl);
-
-  /**
-   * @brief Retrieves custom platform properties (currently unimplemented).
-   * @param idx Property index requested.
-   * @return const uni_property_t* nullptr.
-   */
   static const uni_property_t *get_property(uni_property_idx_t idx);
-
-  /**
-   * @brief Out-Of-Band (OOB) event handler.
-   * @param event The OOB event type.
-   * @param data Pointer to event-specific data.
-   */
   static void on_oob_event(uni_platform_oob_event_t event, void *data);
 };

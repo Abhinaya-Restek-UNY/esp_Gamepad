@@ -1,3 +1,9 @@
+/**
+ * @file Gamepad.cpp
+ * @brief Implementation of the Gamepad wrapper class utilizing Bluepad32 and
+ * BTStack.
+ */
+
 #include "Gamepad.hpp"
 #include "bluetooth.h"
 #include "bt/uni_bt.h"
@@ -8,14 +14,16 @@
 #include "uni_hid_device.h"
 #include <algorithm>
 #include <cstring>
-extern "C" {
 
+extern "C" {
 #include "btstack_port_esp32.h"
 #include "btstack_run_loop.h"
 }
 
+// Initialize the static singleton instance pointer
 Gamepad *Gamepad::instance = nullptr;
 
+// Register static callbacks into the Bluepad32 uni_platform structure
 struct uni_platform Gamepad::custom_platform = {
     .name = "OOP_Custom",
     .init = on_init,
@@ -41,16 +49,18 @@ void Gamepad::start() {
 void Gamepad::bt_task(void *arg) {
   uni_bt_allow_incoming_connections(true);
   btstack_init();
-  // uni_bt_stop_scanning_safe();
   uni_platform_set_custom(&custom_platform);
   uni_init(0, nullptr);
   uni_bt_allowlist_remove_all();
+
+  // Apply MAC address whitelist if the device was previously locked
   if (instance->is_locked.value) {
     uni_bt_allowlist_add_addr(instance->address.value);
     uni_bt_allowlist_set_enabled(true);
   } else {
     uni_bt_allowlist_set_enabled(false);
   }
+
   printf("Starting Bluetooth Task...\n");
   btstack_run_loop_execute();
   vTaskDelete(NULL);
@@ -65,22 +75,19 @@ void Gamepad::lock() {
   }
 
   this->is_locked.value = true;
-
   memcpy(this->address.value, this->device_ptr.load()->conn.btaddr,
          sizeof(bd_addr_t));
 
   this->address.save();
-
   this->is_locked.save();
 }
 
 void Gamepad::unlock() {
-
   this->is_locked.value = false;
-
   this->address.save();
   this->is_locked.save();
 }
+
 void Gamepad::on_event(uni_hid_device_t *d, uni_controller_t *ctl) {
   instance->device_ptr = d;
   if (ctl->klass == UNI_CONTROLLER_CLASS_GAMEPAD) {
@@ -90,6 +97,7 @@ void Gamepad::on_event(uni_hid_device_t *d, uni_controller_t *ctl) {
     instance->throttle = gp->throttle;
     instance->brake = gp->brake;
 
+    // Handle digital trigger fallback
     if (instance->throttle < 1 && ctl->gamepad.misc_buttons & 0x80) {
       instance->throttle = 1024;
     }
@@ -98,12 +106,13 @@ void Gamepad::on_event(uni_hid_device_t *d, uni_controller_t *ctl) {
       instance->brake = 1024;
     }
 
+    // Shift axis values and update atomic state
     instance->current_l_joy = joy_data_t{gp->axis_x << 6, (gp->axis_y << 6)};
-
     instance->current_r_joy = joy_data_t{gp->axis_rx << 6, gp->axis_ry << 6};
 
     instance->buttons = gp->buttons | (gp->misc_buttons << 10);
 
+    // Map D-Pad discrete values to simulated analog extremes
     if (gp->dpad & DPAD_LEFT) {
       this->dpad_x = -32767;
     } else if (gp->dpad & DPAD_RIGHT) {
@@ -131,7 +140,6 @@ bool Gamepad::is_pressed(Gamepad::ButtonCode code) {
 
 bool Gamepad::is_just_pressed(Gamepad::ButtonCode code) {
   uint8_t ret = 0;
-
   int32_t just_pressed_mask = this->buttons & ~this->prev_buttons;
 
   if (just_pressed_mask & code) {
@@ -148,14 +156,12 @@ void Gamepad::get_r_joy(joy_data_t *rjoy) {
   joy_data_t joy = this->current_r_joy;
   rjoy->x =
       std::clamp((int)(joy.x) - (int)(this->offset_r_joy.x), -32767, 32767);
-
   rjoy->y =
       std::clamp((int)(joy.y) - (int)(this->offset_r_joy.y), -32767, 32767);
 }
 
 void Gamepad::get_l_joy(joy_data_t *ljoy) {
   joy_data_t joy = this->current_l_joy;
-
   ljoy->x =
       std::clamp((int)(joy.x) - (int)(this->offset_l_joy.x), -32767, 32767);
   ljoy->y =
@@ -169,7 +175,6 @@ void Gamepad::on_controller_data(uni_hid_device_t *d, uni_controller_t *ctl) {
 }
 
 void Gamepad::zero_l_joy() { this->offset_l_joy = this->current_l_joy; };
-
 void Gamepad::zero_r_joy() { this->offset_r_joy = this->current_r_joy; }
 
 void Gamepad::on_init(int argc, const char **argv) {}
@@ -185,14 +190,13 @@ uni_error_t Gamepad::on_device_discovered(bd_addr_t addr, const char *name,
 }
 
 void Gamepad::on_device_connected(uni_hid_device_t *d) {
-
   instance->_is_connected = true;
   printf("Gamepad connected.\n");
 }
 
 void Gamepad::on_device_disconnected(uni_hid_device_t *d) {
   instance->_is_connected = false;
-  esp_restart();
+  esp_restart(); // Restart device upon disconnection to ensure clean state
 }
 
 uni_error_t Gamepad::on_device_ready(uni_hid_device_t *d) {
@@ -208,7 +212,6 @@ void Gamepad::on_oob_event(uni_platform_oob_event_t event, void *data) {}
 void Gamepad::play_rumble() {
   static btstack_context_callback_registration_t rumble_callback;
   if (this->device_ptr != nullptr) {
-
     // We pass the controller's internal index as the context.
     // This is safer than passing the pointer, just in case the controller
     // disconnects!

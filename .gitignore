@@ -1,0 +1,27 @@
+# ESP-IDF Build Directories
+build/
+test_app/build/
+test_app/build.clang/
+build.clang/
+
+# ESP-IDF Configuration Files
+sdkconfig
+sdkconfig.old
+test_app/sdkconfig
+test_app/sdkconfig.old
+
+# ESP-IDF Component Manager
+managed_components/
+dependencies.lock
+test_app/managed_components/
+test_app/dependencies.lock
+
+# LSP / Editor / clangd
+compile_commands.json
+.cache/
+.clangd/
+.vscode/
+
+# OS Specific
+.DS_Store
+Thumbs.db

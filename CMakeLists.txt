@@ -1,4 +1,4 @@
 idf_component_register(SRCS "Gamepad.cpp"
-    INCLUDE_DIRS "."
-    REQUIRES bluepad32 btstack PresistentConfig
+    INCLUDE_DIRS "." "./external/PresistentConfig"
+    REQUIRES bluepad32 btstack esp_PresistentConfig
 )

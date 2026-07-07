@@ -1,0 +1,10 @@
+version: "1.0.0"
+description: "Object-oriented C++ wrapper for Bluepad32 Bluetooth gamepads."
+url: "https://github.com/Abhinaya-Restek-UNY/esp_Gamepad.git"
+
+dependencies:
+  esp_PresistentConfig:
+    git: https://github.com/Abhinaya-Restek-UNY/esp_PresistentConfig.git
+
+  idf:
+    version: ">=4.4"
